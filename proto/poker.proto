@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package poker;
+
+option go_package = "github.com/texasholdem/backend/proto";
+
+service PokerService {
+  rpc EvaluateHand(EvaluateHandRequest) returns (EvaluateHandResponse);
+  rpc CompareHands(CompareHandsRequest) returns (CompareHandsResponse);
+  rpc CalculateWinProbability(WinProbabilityRequest) returns (WinProbabilityResponse);
+}
+
+// Card notation: 2-char string, suit first (H/D/C/S) + rank (2-9/T/J/Q/K/A)
+// Examples: HA = Ace of Hearts, S7 = Seven of Spades, CT = Ten of Clubs
+
+message EvaluateHandRequest {
+  repeated string cards = 1; // Exactly 7 cards
+}
+
+message EvaluateHandResponse {
+  string hand_rank = 1;           // e.g. "Royal Flush", "Two Pair"
+  repeated string best_five = 2;  // The 5 cards forming the best hand
+  int32 rank_value = 3;           // Numeric rank for comparison (higher = better)
+}
+
+message CompareHandsRequest {
+  repeated string player1_cards = 1; // 7 cards for player 1
+  repeated string player2_cards = 2; // 7 cards for player 2
+}
+
+message CompareHandsResponse {
+  int32 winner = 1;                       // 1, 2, or 0 for tie
+  EvaluateHandResponse player1_hand = 2;
+  EvaluateHandResponse player2_hand = 3;
+  string description = 4;                 // Human-readable result
+}
+
+message WinProbabilityRequest {
+  repeated string hole_cards = 1;    // 2 hole cards for the player
+  repeated string community = 2;     // 0-5 community cards
+  int32 num_opponents = 3;           // Number of opponents
+  int32 iterations = 4;              // Number of Monte Carlo simulations
+}
+
+message WinProbabilityResponse {
+  double win_probability = 1;  // Winning percentage (0.0-100.0)
+  double tie_probability = 2;  // Tie percentage
+  double loss_probability = 3; // Loss percentage
+  int32 iterations_run = 4;
+}

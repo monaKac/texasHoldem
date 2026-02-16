@@ -1,0 +1,22 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "50051:50051"
+
+  envoy:
+    build:
+      context: ./envoy
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8081:80"
+    depends_on:
+      - envoy
