@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-PROJECT_ID="YOUR_PROJECT_ID"        # ← replace with your GCP project ID
-REGION="europe-west1"
+PROJECT_ID="project-3e947f68-2d6d-435c-bb4"        # ← replace with your GCP project ID
+REGION="europe-west4"
 CLUSTER_NAME="texasholdem-cluster"
 REPO_NAME="texasholdem"
 TAG="latest"
@@ -52,26 +52,6 @@ fi
 # Point kubectl at the cluster
 gcloud container clusters get-credentials "$CLUSTER_NAME" --region="$REGION"
 
-# ─── 3. Build & push images ──────────────────────────────────────────────────
-echo "▸ Building and pushing backend image…"
-docker build --platform linux/amd64 -t "$BACKEND_IMAGE" ./backend
-docker push "$BACKEND_IMAGE"
-
-echo "▸ Building and pushing frontend image…"
-docker build --platform linux/amd64 -t "$FRONTEND_IMAGE" ./frontend
-docker push "$FRONTEND_IMAGE"
-
-# ─── 4. Deploy to GKE ────────────────────────────────────────────────────────
-echo "▸ Applying Kubernetes manifests…"
-
-# Substitute image placeholders and apply
-sed "s|IMAGE_BACKEND|${BACKEND_IMAGE}|g" k8s/backend.yaml  | kubectl apply -f -
-sed "s|IMAGE_FRONTEND|${FRONTEND_IMAGE}|g" k8s/frontend.yaml | kubectl apply -f -
-kubectl apply -f k8s/envoy.yaml
-
-# ─── 5. Wait for external IPs ────────────────────────────────────────────────
-echo "▸ Waiting for external IPs (this may take a minute)…"
-
 wait_for_ip() {
   local svc="$1"
   local ip=""
@@ -82,8 +62,37 @@ wait_for_ip() {
   echo "$ip"
 }
 
-FRONTEND_IP=$(wait_for_ip frontend)
+# ─── 3. Build & deploy backend + envoy first ─────────────────────────────────
+echo "▸ Building and pushing backend image…"
+docker build --platform linux/amd64 -t "$BACKEND_IMAGE" ./backend
+docker push "$BACKEND_IMAGE"
+
+echo "▸ Applying backend and envoy manifests…"
+sed "s|IMAGE_BACKEND|${BACKEND_IMAGE}|g" k8s/backend.yaml | kubectl apply -f -
+kubectl apply -f k8s/envoy.yaml
+
+echo "▸ Waiting for Envoy external IP (this may take a minute)…"
 ENVOY_IP=$(wait_for_ip envoy)
+echo "  Envoy IP: ${ENVOY_IP}"
+
+# ─── 4. Build frontend with the real Envoy IP ────────────────────────────────
+echo "▸ Patching frontend to point at Envoy IP…"
+sed -i.bak "s|http://localhost:8080|http://${ENVOY_IP}:8080|" frontend/lib/main.dart
+
+echo "▸ Building and pushing frontend image…"
+docker build --platform linux/amd64 -t "$FRONTEND_IMAGE" ./frontend
+docker push "$FRONTEND_IMAGE"
+
+# Restore the original file so local dev still works
+mv frontend/lib/main.dart.bak frontend/lib/main.dart
+
+echo "▸ Applying frontend manifest…"
+sed "s|IMAGE_FRONTEND|${FRONTEND_IMAGE}|g" k8s/frontend.yaml | kubectl apply -f -
+kubectl rollout restart deployment frontend
+
+# ─── 5. Wait for frontend IP ─────────────────────────────────────────────────
+echo "▸ Waiting for Frontend external IP…"
+FRONTEND_IP=$(wait_for_ip frontend)
 
 echo ""
 echo "════════════════════════════════════════════"
